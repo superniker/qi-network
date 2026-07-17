@@ -1,5 +1,5 @@
 # Qi Registry Dockerfile
-# 部署: docker build -t qi-registry . && docker run -p 8731:8731 -v $(pwd)/data:/data qi-registry
+# 部署: docker build -t qi-registry . && docker run -p 7881:7881 -v $(pwd)/data:/data qi-registry
 
 FROM python:3.12-slim
 
@@ -22,9 +22,9 @@ RUN pip install --no-cache-dir /app/qi-registry
 RUN mkdir -p /data
 ENV QI_REGISTRY_DB=/data/qi_registry.db
 
-EXPOSE 8731
+EXPOSE 7881
 
 HEALTHCHECK --interval=30s --timeout=3s \
-    CMD curl -f http://localhost:8731/health || exit 1
+    CMD curl -f http://localhost:7881/health || exit 1
 
-CMD ["python", "-m", "uvicorn", "qi_registry.main:app", "--host", "0.0.0.0", "--port", "8731"]
+CMD ["python", "-m", "uvicorn", "qi_registry.main:app", "--host", "0.0.0.0", "--port", "7881"]

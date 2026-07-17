@@ -53,7 +53,7 @@ class FindResult:
 class BootstrapClient:
     """HTTP client for qi-bootstrap."""
 
-    def __init__(self, base_url: str = "http://qi-network.net:8733", timeout: int = 10):
+    def __init__(self, base_url: str = "http://qi-network.net:7883", timeout: int = 10):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 

@@ -55,8 +55,8 @@ class QiNode:
             identity=self.identity,
             addresses=self.config_data.get("addresses", []),
             config=QiConfig(
-                bootstrap_url=self.config_data.get("bootstrap_url", "http://qi-network.net:8733"),
-                registry_url=self.config_data.get("registry_url", "http://qi-network.net:8731"),
+                bootstrap_url=self.config_data.get("bootstrap_url", "http://qi-network.net:7883"),
+                registry_url=self.config_data.get("registry_url", "http://qi-network.net:7881"),
                 auto_connect=False,  # we connect explicitly
             ),
         )
@@ -248,8 +248,8 @@ class QiNode:
         return (
             f"🕸️  Qi Node Status\n"
             f"   DID: {self.identity.node_id[:50]}...\n"
-            f"   Registry: {'🟢' if h['registry'] else '🔴'} qi-network.net:8731\n"
-            f"   Bootstrap: {'🟢' if h['bootstrap'] else '🔴'} qi-network.net:8733\n"
+            f"   Registry: {'🟢' if h['registry'] else '🔴'} qi-network.net:7881\n"
+            f"   Bootstrap: {'🟢' if h['bootstrap'] else '🔴'} qi-network.net:7883\n"
             f"   DHT peers: {h['peers']}\n"
             f"   Local peers: {len(peers_local)}\n"
             f"   Addresses: {self.client.addresses or '(none configured)'}"

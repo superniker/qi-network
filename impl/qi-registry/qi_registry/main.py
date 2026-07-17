@@ -31,7 +31,7 @@ import os
 DB_PATH = os.environ.get("QI_REGISTRY_DB", "qi_registry.db")
 API_KEY = os.environ.get("QI_REGISTRY_API_KEY", "")  # "" = no auth required
 HOST = os.environ.get("QI_REGISTRY_HOST", "0.0.0.0")
-PORT = int(os.environ.get("QI_REGISTRY_PORT", "8731"))
+PORT = int(os.environ.get("QI_REGISTRY_PORT", "7881"))
 
 logger = logging.getLogger("qi-registry")
 

@@ -35,8 +35,8 @@ logger = logging.getLogger("qi-client")
 @dataclass
 class QiConfig:
     """Configuration for a Qi Network client."""
-    bootstrap_url: str = "http://qi-network.net:8733"
-    registry_url: str = "http://qi-network.net:8731"
+    bootstrap_url: str = "http://qi-network.net:7883"
+    registry_url: str = "http://qi-network.net:7881"
     timeout: int = 10
     auto_connect: bool = True          # connect on client creation
     auto_publish: bool = False         # publish on client creation

@@ -3,7 +3,7 @@ Qi Bootstrap — Entry Point
 
 Usage:
   python -m qi_bootstrap.main
-  QI_BOOTSTRAP_PORT=8733 python -m qi_bootstrap.main
+  QI_BOOTSTRAP_PORT=7883 python -m qi_bootstrap.main
   QI_BOOTSTRAP_DID="did:key:z..." python -m qi_bootstrap.main
 """
 

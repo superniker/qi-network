@@ -25,7 +25,7 @@ logger = logging.getLogger("qi-bootstrap")
 # ─── Config ──────────────────────────────────────────────────
 
 HOST = os.environ.get("QI_BOOTSTRAP_HOST", "0.0.0.0")
-PORT = int(os.environ.get("QI_BOOTSTRAP_PORT", "8733"))
+PORT = int(os.environ.get("QI_BOOTSTRAP_PORT", "7883"))
 
 # ─── Global state ────────────────────────────────────────────
 

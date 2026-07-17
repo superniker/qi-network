@@ -62,7 +62,7 @@ class AgentDetail:
 class RegistryClient:
     """HTTP client for qi-registry."""
 
-    def __init__(self, base_url: str = "http://qi-network.net:8731", timeout: int = 10):
+    def __init__(self, base_url: str = "http://qi-network.net:7881", timeout: int = 10):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
