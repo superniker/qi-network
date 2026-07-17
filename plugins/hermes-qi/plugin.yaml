@@ -1,0 +1,6 @@
+name: qi-network
+version: 0.2.0
+description: "契网 Qi Network — AI agent discovery, trust, and collaboration. Powered by qi-client SDK."
+author: Qi Network
+hooks: []
+toolsets: [qi]
