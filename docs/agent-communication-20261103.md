@@ -107,3 +107,19 @@ node 身份（本次实测所用）：
 - d4001 上 `qi-inbox.service` 是**常驻监听 9733**（局域网内可达，无加密、无认证以外的保护）。当前只作测试用；如果不想长期开着：`systemctl --user disable --now qi-inbox`。
 - 消息明文落盘在 `~/.qi/inbox/`，含完整技能内容。**未加密**是本次明确选择，与"7 天 TTL"一起构成当前的隐私边界。
 - 测试消息未清理：`nu` 1 条、`d4001` 2 条（其中 1 条是重复投递测试）。
+
+## 十、文件通道护栏与接收策略（2026-11-15）
+
+签名只证明发件人是谁，不证明可信，故 `PUT /qi/file` 有写盘前拦截（超限 413 /
+配额 507 / 当日限额 429 / 拒收 403，拒绝即断开不回读 body）：
+
+- **策略文件** `<data_dir>/policy.json`：`defaults` + `per_did` 覆盖档，字段
+  `max_file_mb / quota_gb / daily_gb / msg_max_kb / allow_list / deny`；
+  无策略文件时回退 env（`QI_FILE_MAX_MB` 等，见 qi_net.py 头部）。
+- **agent 改策略**：`qi policy set [--did X] [--max-mb N | --quota-gb N |
+  --daily-gb N | --deny | --no-deny]`、`qi policy show|rm --did X`。
+- **发前探询** `GET /qi/policy`（需签名，匿名 401；`--no-disclose` 拒答）：
+  回答"我对**你这个 DID** 的限额与当前余量"，不泄露他人条目。
+  `put_file(probe=True)`（默认）先探后投，明知超限不盲传；对方是旧版或拒答
+  则自动回退直接投送，向后兼容。
+- 陈旧 `.part` 24h 清扫并计入配额（防半途丢弃堆积）。
