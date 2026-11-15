@@ -7,3 +7,4 @@ build/
 *.db
 .pypirc
 totp.py
+reports/
