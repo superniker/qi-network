@@ -88,6 +88,44 @@ def cmd_serve(a):
     qi_net.serve(a.port, a.host, a.data_dir)
 
 
+def cmd_policy(a):
+    path = qi_net.data_dir(a.data_dir) / qi_net.POLICY_FILENAME
+    if a.action == "show":
+        print(json.dumps(qi_net.load_policy(a.data_dir), ensure_ascii=False, indent=2))
+        return
+    try:
+        cur = json.loads(path.read_text())
+    except FileNotFoundError:
+        cur = {}
+    if a.action == "set":
+        if a.did:
+            tgt = cur.setdefault("per_did", {}).setdefault(a.did, {})
+        else:
+            tgt = cur.setdefault("defaults", {})
+        for flag, key in ((a.max_mb, "max_file_mb"), (a.quota_gb, "quota_gb"),
+                          (a.daily_gb, "daily_gb"), (a.msg_max_kb, "msg_max_kb")):
+            if flag is not None:
+                tgt[key] = flag
+        if a.deny:
+            tgt["deny"] = True
+        if getattr(a, "no_deny", False):
+            tgt.pop("deny", None)
+        if a.disclose is not None:
+            cur["disclose"] = a.disclose
+        cur = {k: v for k, v in cur.items()
+               if not (isinstance(v, (dict, list)) and not v)}
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2))
+        tmp.replace(path)
+        print(f"已写入 {path}（{'DID ' + a.did if a.did else '默认档'}）")
+    elif a.action == "rm":
+        cur.get("per_did", {}).pop(a.did, None)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cur, ensure_ascii=False, indent=2))
+        tmp.replace(path)
+        print(f"已移除 {a.did} 的条目")
+
+
 def cmd_peer(a):
     p = qi_net.data_dir() / "peers.json"
     book = _peer_book()
@@ -134,6 +172,19 @@ def main(argv=None):
     v.add_argument("--port", type=int, default=9733)
     v.add_argument("--host", default="0.0.0.0")
     v.set_defaults(fn=cmd_serve)
+
+    q = sub.add_parser("policy")
+    q.add_argument("action", choices=["show", "set", "rm"])
+    q.add_argument("--did", default="", help="目标DID（留空=默认档）")
+    q.add_argument("--max-mb", type=float, default=None, dest="max_mb")
+    q.add_argument("--quota-gb", type=float, default=None, dest="quota_gb")
+    q.add_argument("--daily-gb", type=float, default=None, dest="daily_gb")
+    q.add_argument("--msg-max-kb", type=int, default=None, dest="msg_max_kb")
+    q.add_argument("--deny", action="store_true", help="对该DID拒收")
+    q.add_argument("--no-deny", action="store_true", dest="no_deny", help="解除拒收")
+    q.add_argument("--disclose", action="store_true", default=None, help="应答策略探询")
+    q.add_argument("--no-disclose", action="store_false", dest="disclose")
+    q.set_defaults(fn=cmd_policy)
 
     p = sub.add_parser("peer")
     p.add_argument("action", choices=["add", "rm", "list"])

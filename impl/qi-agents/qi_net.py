@@ -79,6 +79,50 @@ def _today_from_did(fdir: Path, did: str) -> int:
     return total
 
 
+POLICY_FILENAME = "policy.json"
+
+
+def load_policy(d: str | Path | None = None) -> dict:
+    """读取 <data_dir>/policy.json 并与 env 默认合并。schema：
+    {
+      "disclose": true,                      # 是否应答 GET /qi/policy 探询
+      "defaults": {"max_file_mb": 2048, "quota_gb": 20,
+                   "daily_gb": 10, "msg_max_kb": 512, "allow_list": []},
+      "per_did": {"did:key:...或短前缀": {"max_file_mb": ..., "deny": true}}
+    }
+    """
+    merged = {"disclose": True,
+              "defaults": {"max_file_mb": FILE_MAX_MB, "quota_gb": DIR_QUOTA_GB,
+                           "daily_gb": DAILY_GB_PER_DID, "msg_max_kb": MSG_MAX_KB,
+                           "allow_list": ALLOW_DIDS}}
+    try:
+        user = json.loads((data_dir(d) / POLICY_FILENAME).read_text())
+    except FileNotFoundError:
+        user = {}
+    except (json.JSONDecodeError, OSError) as e:               # noqa: BLE001
+        print(f"⚠️ policy.json 不可读，用默认: {e}", flush=True)
+        user = {}
+    merged["disclose"] = bool(user.get("disclose", True))
+    merged["defaults"].update(user.get("defaults") or {})
+    merged["per_did"] = user.get("per_did") or {}
+    return merged
+
+
+def policy_for_did(policy: dict, did: str) -> dict:
+    """默认档叠加该 DID 覆盖档。精确匹配优先，其次前缀/后缀匹配。"""
+    limits = dict(policy["defaults"])
+    best = None
+    for key, over in policy.get("per_did", {}).items():
+        if did == key:
+            best = over
+            break
+        if best is None and (did.startswith(key) or did.endswith(key)):
+            best = over
+    if best:
+        limits.update(best)
+    return limits
+
+
 def data_dir(d: str | Path | None = None) -> Path:
     p = Path(d).expanduser() if d else DEFAULT_DATA_DIR
     p.mkdir(parents=True, exist_ok=True)
@@ -304,6 +348,7 @@ def drain_mailbox(base: str, identity: QiIdentity, d: str | Path | None = None,
 # 带身份签名的二进制通道：
 #
 #   PUT  /qi/file/<tid>   流式上传，支持 Content-Range 断点续传
+#   GET  /qi/policy       发前探询：签名方得到"我对你个人的限额与余量"
 #   GET  /qi/file/<tid>   下载，支持 Range
 #   GET  /qi/files        已收到的文件清单
 #
@@ -349,10 +394,23 @@ def file_headers(identity: QiIdentity, op: str, tid: str, name: str = "",
     }
 
 
+def probe_policy(addr: str, identity: QiIdentity, timeout: int = 8) -> dict:
+    """投送前问一句：对方对我的限额与余量。旧版节点/拒答则返回 ok=False。"""
+    hdrs = file_headers(identity, "policy", "-")
+    req = urllib.request.Request(f"http://{addr}/qi/policy", headers=hdrs)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode())
+    except Exception as e:                                    # noqa: BLE001
+        return {"ok": False, "error": str(e)}
+
+
 def put_file(addr: str, identity: QiIdentity, src: str | Path,
              name: str = "", chunk: int = 4 << 20, timeout: int = 120,
-             tid: str | None = None, progress=None) -> dict:
-    """把本地文件推到对端。返回 {tid, sha256, size, response}"""
+             tid: str | None = None, progress=None,
+             probe: bool = True) -> dict:
+    """把本地文件推到对端。返回 {tid, sha256, size, response}。
+    probe=True 时先发 /qi/policy 探询，明知超限/被拒就不盲传（对方不答则照旧直接投）。"""
     p = Path(src).expanduser()
     if not p.is_file():
         return {"ok": False, "error": f"没有这个文件: {p}"}
@@ -360,6 +418,22 @@ def put_file(addr: str, identity: QiIdentity, src: str | Path,
     size = p.stat().st_size
     sha = sha256_file(p)
     tid = tid or f"xfer-{int(time.time())}-{secrets.token_hex(4)}"
+    if probe:
+        pol = probe_policy(addr, identity)
+        if pol.get("ok"):
+            mb = size / 1048576
+            if pol.get("deny"):
+                return {"ok": False, "error": "对方对你拒收", "tid": tid}
+            if pol.get("max_file_mb") and size > pol["max_file_mb"] * 1048576:
+                return {"ok": False, "tid": tid,
+                        "error": f"对方对你的单文件上限 {pol['max_file_mb']:g}MB，"
+                                 f"文件 {mb:.1f}MB，未发送"}
+            if pol.get("quota_left", 1 << 62) < size:
+                return {"ok": False, "tid": tid,
+                        "error": f"对方收件配额仅余 {pol['quota_left'] >> 20}MB，未发送"}
+            if pol.get("daily_left", 1 << 62) < size:
+                return {"ok": False, "tid": tid,
+                        "error": f"你在对方处今日仅余 {pol['daily_left'] >> 20}MB，未发送"}
     sent = 0
     resp = {}
     with open(p, "rb") as f:
@@ -472,6 +546,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "did": ident.node_id,
                                     "inbox": len(inbox(1000, self.ddir)),
                                     "agent": self.server_version})
+        if self.path.startswith("/qi/policy"):
+            # 发前探询：签名后回答“我对你个人的限额与余量”，不泄露他人条目
+            did, err = self._file_auth("policy", "-")
+            pol = load_policy(self.ddir)
+            if not pol["disclose"]:
+                return self._json(403, {"ok": False, "error": "不提供策略"})
+            if err:
+                return self._json(401, {"ok": False, "error": err})
+            lim = policy_for_did(pol, did)
+            fdir = files_dir(self.ddir)
+            quota_left = int(lim["quota_gb"] * 2**30) - _files_used(fdir)
+            daily_left = int(lim["daily_gb"] * 2**30) - _today_from_did(fdir, did)
+            return self._json(200, {"ok": True, "did": did,
+                                    "deny": bool(lim.get("deny")),
+                                    "max_file_mb": lim["max_file_mb"],
+                                    "msg_max_kb": lim["msg_max_kb"],
+                                    "quota_left": max(0, quota_left),
+                                    "daily_left": max(0, daily_left)})
         if self.path.startswith("/qi/files"):
             did, err = self._file_auth("list", "-")
             if err:
@@ -539,23 +631,27 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             declared_len = 0
         expect = max(total, declared_len)
-        if ALLOW_DIDS and not any(did.startswith(a) for a in ALLOW_DIDS):
+        pol = load_policy(self.ddir)
+        lim = policy_for_did(pol, did)
+        al = lim.get("allow_list") or []
+        if lim.get("deny") or (al and not any(did.startswith(a) for a in al)):
             self.close_connection = True
-            return self._json(403, {"ok": False, "error": "发件DID不在白名单", "did": did})
-        if expect > FILE_MAX_MB * 1048576:
+            return self._json(403, {"ok": False, "error": "发件方被拒收", "did": did})
+        if expect > lim["max_file_mb"] * 1048576:
             self.close_connection = True
-            return self._json(413, {"ok": False, "error": f"单文件超上限 {FILE_MAX_MB}MB",
+            return self._json(413, {"ok": False,
+                                    "error": f"单文件超上限 {lim['max_file_mb']:g}MB",
                                     "total": expect})
         fdir0 = files_dir(self.ddir)
         _sweep_stale_parts(fdir0)
-        if _files_used(fdir0) + expect > DIR_QUOTA_GB * 1073741824:
+        if _files_used(fdir0) + expect > lim["quota_gb"] * 2**30:
             self.close_connection = True
             return self._json(507, {"ok": False,
-                                    "error": f"收件目录配额 {DIR_QUOTA_GB}GB 不足"})
-        if _today_from_did(fdir0, did) + expect > DAILY_GB_PER_DID * 1073741824:
+                                    "error": f"收件目录配额 {lim['quota_gb']}GB 不足"})
+        if _today_from_did(fdir0, did) + expect > lim["daily_gb"] * 2**30:
             self.close_connection = True
             return self._json(429, {"ok": False,
-                                    "error": f"该发件方今日配额 {DAILY_GB_PER_DID}GB 用尽"})
+                                    "error": f"该发件方今日配额 {lim['daily_gb']}GB 用尽"})
 
         start = 0
         rng = self.headers.get("Content-Range", "")
@@ -609,8 +705,8 @@ class Handler(BaseHTTPRequestHandler):
             n = int(self.headers.get("Content-Length", 0))
         except ValueError:
             n = 0
-        if n > MSG_MAX_KB * 1024:
-            return self._json(413, {"ok": False, "error": f"消息超上限 {MSG_MAX_KB}KB"})
+        if n > load_policy(self.ddir)["defaults"]["msg_max_kb"] * 1024:
+            return self._json(413, {"ok": False, "error": "消息超上限"})
         try:
             env = json.loads(self.rfile.read(n).decode())
         except Exception as e:                               # noqa: BLE001
