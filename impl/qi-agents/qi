@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""
+qi —— 契网命令行（agent 无关，任何能执行 shell 的 agent 都能用）
+
+  qi whoami
+  qi send --to 192.168.1.192:9733 --file msg.json [--type qi/knowledge/share]
+  qi send --to HOST:PORT --text "你好" [--name 标题]
+  qi inbox [--limit 10] [--full]
+  qi read <文件名或 message_id 前缀>
+  qi serve --port 9733
+  qi peer add <名字> <host:port>     # 只记在 ~/.qi/peers.json，供 qi send 用名字
+
+设计原则：输出尽量是 JSON 或一行摘要，便于 agent 解析。
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import qi_net
+
+
+def _peer_book() -> dict:
+    p = qi_net.data_dir() / "peers.json"
+    return json.loads(p.read_text()) if p.exists() else {}
+
+
+def _resolve(to: str) -> str:
+    peers = _peer_book()
+    return peers.get(to, to)
+
+
+def cmd_whoami(a):
+    ident = qi_net.load_identity(a.data_dir)
+    card = qi_net.load_card(a.data_dir)
+    print(json.dumps({
+        "did": ident.node_id,
+        "address": qi_net.my_address(card),
+        "name": (card.get("identity") or {}).get("name", ""),
+        "inbox": len(qi_net.inbox(1000, a.data_dir)),
+        "peers_known": list(_peer_book()),
+    }, ensure_ascii=False, indent=2))
+
+
+def cmd_send(a):
+    ident = qi_net.load_identity(a.data_dir)
+    if a.file:
+        payload = json.loads(Path(a.file).read_text())
+    elif a.text:
+        payload = {"kind": "note", "name": a.name or "note", "content": a.text}
+    else:
+        sys.exit("需要 --file 或 --text")
+    r = qi_net.send(_resolve(a.to), a.type, payload, ident,
+                    to_node=a.to_node or "", timeout=a.timeout)
+    print(json.dumps(r, ensure_ascii=False, indent=2))
+    sys.exit(0 if r.get("ok") else 1)
+
+
+def cmd_inbox(a):
+    recs = qi_net.inbox(a.limit, a.data_dir)
+    if a.json:
+        print(json.dumps(recs, ensure_ascii=False, indent=2))
+        return
+    if not recs:
+        print("收件箱为空")
+        return
+    for r in recs:
+        e = r["envelope"]
+        print(f"{r['received_at'][:19]}  {e['type']:<24} verified={r['verified']}  "
+              f"{r['_file']}  from={e['signer'][:20]}…")
+        if e.get("payload", {}).get("name"):
+            print(f"    └ {e['payload']['name']}: {str(e['payload'].get('summary') or e['payload'].get('content') or '')[:80]}")
+
+
+def cmd_read(a):
+    for r in qi_net.inbox(1000, a.data_dir):
+        mid = r["envelope"].get("message_id", "")
+        if a.selector in r["_file"] or mid.endswith(a.selector) or mid == a.selector:
+            print(json.dumps(r, ensure_ascii=False, indent=2))
+            return
+    sys.exit(f"未找到: {a.selector}")
+
+
+def cmd_serve(a):
+    qi_net.serve(a.port, a.host, a.data_dir)
+
+
+def cmd_peer(a):
+    p = qi_net.data_dir() / "peers.json"
+    book = _peer_book()
+    if a.action == "add":
+        book[a.name] = a.address
+        p.write_text(json.dumps(book, ensure_ascii=False, indent=2))
+        print(f"已登记 {a.name} → {a.address}")
+    elif a.action == "rm":
+        book.pop(a.name, None)
+        p.write_text(json.dumps(book, ensure_ascii=False, indent=2))
+        print(f"已移除 {a.name}")
+    elif a.action == "list":
+        print(json.dumps(book, ensure_ascii=False, indent=2) if book else "（空）")
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="qi", description="契网命令行（agent 无关）")
+    ap.add_argument("--data-dir", default=None)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("whoami").set_defaults(fn=cmd_whoami)
+
+    s = sub.add_parser("send")
+    s.add_argument("--to", required=True, help="host:port 或 qi peer 名")
+    s.add_argument("--type", default=qi_net.DEFAULT_TYPE)
+    s.add_argument("--file", help="payload JSON 文件")
+    s.add_argument("--text", help="直接发一段文本")
+    s.add_argument("--name", default="", help="--text 时的标题")
+    s.add_argument("--to-node", default="", help="收件人 DID（可留空）")
+    s.add_argument("--timeout", type=float, default=5.0)
+    s.set_defaults(fn=cmd_send)
+
+    i = sub.add_parser("inbox")
+    i.add_argument("--limit", type=int, default=10)
+    i.add_argument("--json", action="store_true")
+    i.add_argument("--full", action="store_true")
+    i.set_defaults(fn=cmd_inbox)
+
+    r = sub.add_parser("read")
+    r.add_argument("selector")
+    r.set_defaults(fn=cmd_read)
+
+    v = sub.add_parser("serve")
+    v.add_argument("--port", type=int, default=9733)
+    v.add_argument("--host", default="0.0.0.0")
+    v.set_defaults(fn=cmd_serve)
+
+    p = sub.add_parser("peer")
+    p.add_argument("action", choices=["add", "rm", "list"])
+    p.add_argument("name", nargs="?", default="")
+    p.add_argument("address", nargs="?", default="")
+    p.set_defaults(fn=cmd_peer)
+
+    a = ap.parse_args(argv)
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()
