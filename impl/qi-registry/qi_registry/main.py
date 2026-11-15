@@ -140,7 +140,9 @@ def register_agent(
         master_name=card.get("identity", {}).get("master_name", ""),
         description=card.get("identity", {}).get("description", ""),
         card_json=body.card_json,
-        skills_json=json.dumps(skills),
+        # ensure_ascii=False: Chinese skill names must stay literal, or the
+        # skills_json ILIKE filters in list_agents() can never match them.
+        skills_json=json.dumps(skills, ensure_ascii=False),
         verified=verified,
         registered_at=datetime.datetime.utcnow(),
         last_seen_at=datetime.datetime.utcnow(),
@@ -206,7 +208,7 @@ def update_agent(
     verified = _verify_card_signature(body.card_json)
 
     record.card_json = body.card_json
-    record.skills_json = json.dumps(skills)
+    record.skills_json = json.dumps(skills, ensure_ascii=False)
     record.name = card.get("identity", {}).get("name", record.name)
     record.description = card.get("identity", {}).get("description", record.description)
     record.verified = verified
@@ -302,8 +304,11 @@ def list_agents(
 @app.get("/api/v1/stats", response_model=StatsResponse)
 def get_stats(db: Session = Depends(get_db)):
     """Get registry statistics."""
-    total = db.query(AgentRecord).count()
+    # Soft-deleted rows stay in the table (DELETE sets active=0) but they are
+    # not agents anymore: reporting them as total_agents made 'total' disagree
+    # with the agent list. Both numbers now describe live records.
     active = db.query(AgentRecord).filter(AgentRecord.active == True).count()
+    total = active
     verified_count = db.query(AgentRecord).filter(AgentRecord.active == True, AgentRecord.verified == True).count()
 
     # Aggregate skills

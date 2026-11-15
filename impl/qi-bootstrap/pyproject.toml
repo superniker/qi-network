@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Qi Network Bootstrap — Kademlia DHT entry node, first-hop discovery"
 requires-python = ">=3.10"
 dependencies = [
-    "qi-core",
+    "qinetwork-core",
 ]
 
 [project.optional-dependencies]

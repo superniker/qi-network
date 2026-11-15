@@ -283,6 +283,41 @@ ROUTES = {
 
 def route(method: str, path: str, body: Optional[bytes], query: dict[str, str] | None = None) -> tuple[int, str]:
     """Route a request to the correct handler."""
+    query = query or {}
+
+    # ─── 信箱：带路径参数，走前缀匹配 ───────────────────
+    if path == "/mailbox-stats" and method.upper() == "GET":
+        from . import mailbox as mb
+        return mb.stats()
+
+    if path.startswith("/mailbox/"):
+        from . import mailbox as mb
+        rest = path[len("/mailbox/"):]
+        is_ack = rest.endswith("/ack")
+        did = rest[:-4] if is_ack else rest
+        did = did.rstrip("/")
+        if not did:
+            return _json_response(400, {"error": "缺少收件人 did"})
+        if is_ack and method.upper() == "POST":
+            try:
+                payload = _parse_body(body) if body else {}
+            except ValueError as e:
+                return _json_response(400, {"error": str(e)})
+            return mb.ack(did, payload)
+        if method.upper() == "POST":
+            try:
+                env = _parse_body(body) if body else {}
+            except ValueError as e:
+                return _json_response(400, {"error": str(e)})
+            return mb.deposit(did, env)
+        if method.upper() == "GET":
+            try:
+                limit = int(query.get("limit", "50"))
+            except ValueError:
+                limit = 50
+            return mb.fetch(did, query.get("ts", ""), query.get("sig", ""), limit)
+        return _json_response(405, {"error": "method not allowed"})
+
     key = (method.upper(), path)
     handler = ROUTES.get(key)
     if handler is None:
@@ -426,6 +461,12 @@ def main():
     )
     logger.info("Starting Qi Bootstrap v0.1.0")
     logger.info(f"Node ID: {_own_id.hex()}")
+
+    try:
+        from . import mailbox as mb
+        mb.init_db()
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning(f"mailbox 初始化失败（不影响 DHT）: {e}")
 
     server = BootstrapServer()
     try:
