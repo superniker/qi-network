@@ -17,12 +17,41 @@ Powered by qi-client SDK (cross-platform, zero system deps).
 import json
 import os
 import logging
+import sys
 from pathlib import Path
 
-from qinetwork import QiIdentity, AgentCard, Skill, Endpoint, PeerStore
-from qi_client import QiClient, QiConfig
+# ── 依赖兜底：各机器的 qi-core / qi-client 位置不同，先挂到 sys.path ──
+_HERE = Path(__file__).resolve()
+_CANDS = [
+    os.environ.get("QI_CORE_DIR", ""),
+    str(_HERE.parents[3] / "impl" / "qi-core"),          # 仓库内 plugins/hermes-qi/../../
+    str(Path.home() / "qi-src" / "qi-core"),
+    str(Path.home() / "hot4" / "开发" / "qi-network" / "impl" / "qi-core"),
+]
+_CLIENT_CANDS = [
+    os.environ.get("QI_CLIENT_DIR", ""),
+    str(_HERE.parents[3] / "impl" / "qi-client"),
+    str(Path.home() / "qi-src" / "qi-client"),
+    str(Path.home() / "hot4" / "开发" / "qi-network" / "impl" / "qi-client"),
+]
+for _c in _CANDS + _CLIENT_CANDS:
+    if _c and Path(_c).is_dir() and _c not in sys.path:
+        sys.path.insert(0, _c)
 
 logger = logging.getLogger("hermes-qi")
+
+try:
+    from qinetwork import QiIdentity, AgentCard, Skill, Endpoint, PeerStore
+    _HAVE_CORE = True
+except ImportError as _e:                                   # noqa: BLE001
+    logger.warning("qinetwork 不可用（发现层工具将不可用）: %s", _e)
+    _HAVE_CORE = False
+
+try:
+    from qi_client import QiClient, QiConfig
+    _HAVE_CLIENT = True
+except ImportError:                                         # noqa: BLE001
+    _HAVE_CLIENT = False
 
 
 # ─── Node State ──────────────────────────────────────────
@@ -51,6 +80,11 @@ class QiNode:
         self.config_data = self._load_config()
 
         # Network client
+        if not _HAVE_CLIENT:
+            raise RuntimeError(
+                "契网的发现层工具需要 qi-client SDK，本机没装。"
+                "通讯与文件工具（qi_serve / qi_inbox / qi_send_task / qi_send_file 等）不受影响。")
+
         self.client = QiClient(
             identity=self.identity,
             addresses=self.config_data.get("addresses", []),
@@ -272,6 +306,32 @@ def _get_node() -> QiNode:
 def register(ctx):
     """Register Qi Network tools with Hermes."""
 
+    # ── 统一参数适配 ──
+    # Hermes 有时以位置传参（整个 dict）、有时以关键字传参；旧工具全是
+    # `lambda **kw:` 形式，遇到位置传参就会炸。这里在入口处统一包一层，
+    # 新旧工具一起受益。
+    _orig_register_tool = ctx.register_tool
+
+    def _auto_adapt(handler):
+        if handler is None or getattr(handler, "_qi_adapted", False):
+            return handler
+
+        def _adapt(*args, **kw):
+            params = {}
+            if args and isinstance(args[0], dict):
+                params.update(args[0])
+            params.update(kw)
+            return handler(**params)
+
+        setattr(_adapt, "_qi_adapted", True)
+        return _adapt
+
+    def _register_tool(**kwargs):
+        kwargs["handler"] = _auto_adapt(kwargs.get("handler"))
+        return _orig_register_tool(**kwargs)
+
+    ctx.register_tool = _register_tool
+
     # qi_bootstrap
     def _qi_bootstrap(addresses_json: str = "", **kw):
         node = _get_node()
@@ -422,6 +482,112 @@ def register(ctx):
         handler=lambda **kw: _get_node().list_peers(),
     )
 
-    node = _get_node()
-    print(f"[契网 Qi] Plugin loaded. DID: {node.identity.node_id[:30]}... "
-          f"Use qi_bootstrap to join the network.")
+    # ── 通讯与文件：给 agent 的原语，不预设流程 ──────────
+    from . import messaging as _m
+
+    def _reg(name, desc, props, handler, required=None):
+        # Hermes 可能以位置传参（整个 dict）或以关键字传参，两种都兼容
+        def _adapt(*args, **kw):
+            params = {}
+            if args and isinstance(args[0], dict):
+                params.update(args[0])
+            params.update(kw)
+            return handler(**params)
+
+        ctx.register_tool(
+            name=name, toolset="qi",
+            schema={"name": name, "description": desc,
+                    "parameters": {"type": "object", "properties": props,
+                                   "required": required or []}},
+            handler=_adapt)
+
+    _reg("qi_serve",
+         "Start this agent's Qi Network listener so other agents can reach it. "
+         "Incoming messages land in your inbox, incoming files in ~/.qi-node/files/. "
+         "Idempotent — safe to call again.",
+         {"port": {"type": "integer", "description": "Port to listen on, e.g. 9733"}},
+         lambda port=9733, **kw: _m.serve(int(port)),
+         ["port"])
+
+    _reg("qi_inbox",
+         "Read messages other agents have sent you. Each item has message_id, type, "
+         "from (their DID), and payload. Use this to see work requests.",
+         {"limit": {"type": "integer", "description": "How many to return (default 20)"}},
+         lambda limit=20, **kw: _m.inbox(int(limit)))
+
+    _reg("qi_send",
+         "Send a message to another agent by DID. address is host:port "
+         "(IPv6 as [addr]:port). Falls back to the relay mailbox when unreachable.",
+         {"to_did": {"type": "string", "description": "Recipient DID"},
+          "address": {"type": "string", "description": "host:port of the recipient"},
+          "msg_type": {"type": "string", "description": "e.g. qi/task/request"},
+          "payload_json": {"type": "string", "description": "JSON object of the payload"},
+          "mailbox": {"type": "string", "description": "Optional relay mailbox base URL"}},
+         lambda to_did, address, msg_type, payload_json="{}", mailbox="", **kw:
+             _m.send(to_did, address, msg_type, payload_json, mailbox),
+         ["to_did", "address", "msg_type"])
+
+    _reg("qi_send_task",
+         "Ask another agent to do something. Say WHAT you need and let it decide HOW — "
+         "it has its own tools (files, network, its own judgement). This is how you "
+         "delegate to a peer agent.",
+         {"to_did": {"type": "string", "description": "The agent you're asking"},
+          "address": {"type": "string", "description": "host:port of that agent"},
+          "goal": {"type": "string", "description": "What you want done, in one sentence"},
+          "detail": {"type": "string", "description": "Any context it needs (paths, sizes, constraints)"},
+          "reply_to": {"type": "string", "description": "message_id you're responding to, if any"}},
+         lambda to_did, address, goal, detail="", reply_to="", **kw:
+             _m.send_task(to_did, address, goal, detail, reply_to),
+         ["to_did", "address", "goal"])
+
+    _reg("qi_reply",
+         "Report back to the agent that asked you something.",
+         {"to_did": {"type": "string"}, "address": {"type": "string"},
+          "in_reply_to": {"type": "string", "description": "The message_id you're answering"},
+          "body": {"type": "string", "description": "What you did / what happened"},
+          "status": {"type": "string", "description": "done | failed | partial"}},
+         lambda to_did, address, in_reply_to, body, status="done", **kw:
+             _m.reply(to_did, address, in_reply_to, body, status),
+         ["to_did", "address", "in_reply_to", "body"])
+
+    _reg("qi_send_file",
+         "Push a file to another agent over the Qi file channel "
+         "(did:key signed, sha256 verified, resumable). Tell them the returned tid.",
+         {"address": {"type": "string", "description": "host:port of the recipient"},
+          "path": {"type": "string", "description": "Local file path to send"},
+          "name": {"type": "string", "description": "Filename as they will see it"}},
+         lambda address, path, name="", **kw: _m.send_file(address, path, name),
+         ["address", "path"])
+
+    _reg("qi_recv_file",
+         "Pull a file from another agent by its transfer id (tid).",
+         {"address": {"type": "string"}, "tid": {"type": "string"},
+          "dest": {"type": "string", "description": "Local destination path or directory"},
+          "name": {"type": "string"}},
+         lambda address, tid, dest, name="", **kw: _m.recv_file(address, tid, dest, name),
+         ["address", "tid", "dest"])
+
+    _reg("qi_remote_files",
+         "List files another agent has received (so you can pull them by tid).",
+         {"address": {"type": "string"}},
+         lambda address, **kw: _m.remote_files(address),
+         ["address"])
+
+    _reg("qi_local_files",
+         "List files you have received from other agents.",
+         {},
+         lambda **kw: _m.local_files())
+
+    _reg("qi_resolve",
+         "Look up an agent's DID and endpoints by name or DID prefix (via the registry).",
+         {"name_or_did": {"type": "string"}},
+         lambda name_or_did, **kw: _m.resolve(name_or_did),
+         ["name_or_did"])
+
+    # 发现层（qi-client）可能在某些机器上没装，不影响通讯/文件工具
+    try:
+        node = _get_node()
+        print(f"[契网 Qi] Plugin loaded. DID: {node.identity.node_id[:30]}... "
+              f"通讯/文件: qi_serve qi_inbox qi_send_task qi_reply qi_send_file")
+    except Exception as _e:                                 # noqa: BLE001
+        print(f"[契网 Qi] 发现层未就绪（{_e}）；通讯/文件工具已注册")
