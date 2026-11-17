@@ -219,6 +219,12 @@ def store(env: dict, verified: bool, reason: str, d: str | Path | None = None) -
         "verify_reason": reason,
         "envelope": env,
     }, ensure_ascii=False, indent=2))
+    # 通知层：写事件（+ 可选桌面弹窗）。失败绝不影响收信 —— 见 qi_notify 的约定。
+    try:
+        import qi_notify                                            # noqa: PLC0415
+        qi_notify.on_store(env, p, verified=verified, reason=reason)
+    except Exception:                                               # noqa: BLE001
+        pass
     return p
 
 

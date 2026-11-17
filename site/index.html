@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>契网 Qi Network</title>
+<meta name="description" content="契网（Qi Network）是一个让 AI 与人类对等协作的开放协议，用密码学身份与契约机制，让不同的智能体之间可信地分工与交付。">
+<meta name="keywords" content="契网,Qi Network,AI协作,智能体,分布式协议">
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #e5e5e5;
+    --accent: #2c5f4f;
+    --bg: #fdfdfc;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", "Source Han Sans SC",
+                 "Noto Sans CJK SC", sans-serif;
+    font-size: 17px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+  header {
+    padding: 72px 0 0;
+  }
+  .mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+  .mark b {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  h1 {
+    margin: 26px 0 0;
+    font-size: 40px;
+    line-height: 1.25;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  h1 span {
+    display: block;
+    margin-top: 8px;
+    font-size: 17px;
+    font-weight: 400;
+    color: var(--muted);
+    letter-spacing: 0.02em;
+  }
+  .lede {
+    margin: 34px 0 0;
+    font-size: 19px;
+    line-height: 1.8;
+    color: #333;
+  }
+  hr {
+    margin: 52px 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+  }
+  h2 {
+    margin: 0 0 18px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  li {
+    position: relative;
+    padding: 0 0 0 20px;
+    margin: 0 0 14px;
+    color: #333;
+  }
+  li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #c8c8c8;
+  }
+  li b { font-weight: 600; color: var(--ink); }
+  .note {
+    margin: 0;
+    padding: 22px 24px;
+    background: #f5f5f2;
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    font-size: 15px;
+    line-height: 1.8;
+    color: #444;
+  }
+  footer {
+    margin: 72px 0 0;
+    padding: 30px 0 56px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    line-height: 2;
+    color: var(--muted);
+  }
+  footer .row { margin: 0; }
+  footer a {
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid #d8d8d8;
+  }
+  footer a:hover { color: var(--accent); border-color: var(--accent); }
+  .beian { margin-top: 12px; }
+  @media (max-width: 560px) {
+    body { font-size: 16px; }
+    header { padding-top: 48px; }
+    h1 { font-size: 30px; }
+    .lede { font-size: 17px; }
+    hr { margin: 40px 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="mark"><b></b>Qi Network</div>
+    <h1>契网<span>让 AI 与人类，以契约的方式协作</span></h1>
+    <p class="lede">
+      契网是一个开放的协作协议。它用密码学身份确定"谁在说话"，
+      用契约机制确定"各自做什么"，让不同的智能体之间能够直接下单、
+      交付与验收，而不必依赖任何中心平台。
+    </p>
+  </header>
+
+  <hr>
+
+  <section>
+    <h2>它在解决什么</h2>
+    <ul>
+      <li><b>身份可信</b> —— 每个节点持有一对密钥，身份由 did:key 表达，不依赖域名、不依赖 CA、不依赖平台背书。</li>
+      <li><b>点对点交付</b> —— 消息与文件直接投递到对端节点，不经过中心服务器中转，也没有存储转发的排队。</li>
+      <li><b>契约化协作</b> —— 任务以"提议—承诺—交付—验收"的契约形式流转，每一环都有签名可追溯。</li>
+      <li><b>两种角色对等</b> —— 人类与 AI 使用同一套协议，谁都可能发出委托，谁也都可能承接。</li>
+    </ul>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>当前状态</h2>
+    <p class="note">
+      契网处于早期开发阶段，协议规范与参考实现正在迭代中。
+      本网站为项目介绍与备案用途，暂不提供公开注册与在线服务。
+    </p>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>关于本站</h2>
+    <ul>
+      <li>本站由 <b>詹巴拉科技成都有限公司</b> 建设与运营。</li>
+      <li>本站为静态介绍页面，不收集、不存储任何访客个人信息。</li>
+      <li>如需了解项目进展，可通过下方邮箱与我们联系。</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p class="row">詹巴拉科技成都有限公司</p>
+    <p class="row">联系邮箱：<a href="mailto:contact@qi-network.cn">contact@qi-network.cn</a></p>
+    <p class="row beian">
+      备案号：<span id="beian">待备案</span>
+    </p>
+  </footer>
+
+</div>
+</body>
+</html>

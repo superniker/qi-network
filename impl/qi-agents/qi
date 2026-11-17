@@ -88,6 +88,48 @@ def cmd_serve(a):
     qi_net.serve(a.port, a.host, a.data_dir)
 
 
+def cmd_unread(a):
+    """列出还没处理过的消息（来自事件流，不是 inbox 目录）。
+
+    与 `inbox` 的区别：inbox 是「收到过什么」，unread 是「还没处理的」。
+    两者用不同的记录：inbox 落盘的每封信都在，unread 靠
+    ~/.qi-node/events.jsonl 与 ~/.qi-node/handled.jsonl 的差集算出来。
+    """
+    try:
+        import qi_notify
+    except Exception:                                        # noqa: BLE001
+        sys.exit("qi_notify 未就位（应在本目录下）")
+
+    if a.count:
+        print(qi_notify.unread_count())
+        return
+
+    items = qi_notify.unread()
+    if a.json:
+        print(json.dumps(items, ensure_ascii=False, indent=2))
+        return
+    if not items:
+        print("没有未读消息")
+        return
+    print(f"未读 {len(items)} 条：")
+    for r in items:
+        print(f"  {r.get('type') or '?'}  ←  {r.get('from_short') or '?'}")
+        if r.get("body_preview"):
+            print(f"    {r['body_preview'][:100]}")
+        print(f"    at={r.get('at', '?')}  id={r.get('message_id')}")
+
+
+def cmd_ack(a):
+    """标记某条消息已处理。处理完该回的消息就该调这个，否则它会一直算未读。"""
+    try:
+        import qi_notify
+    except Exception:                                        # noqa: BLE001
+        sys.exit("qi_notify 未就位（应在本目录下）")
+    qi_notify.mark_handled(a.message_id, note=a.note or "", by=a.by or "")
+    print(f"已标记 {a.message_id}")
+
+
+
 def cmd_policy(a):
     path = qi_net.data_dir(a.data_dir) / qi_net.POLICY_FILENAME
     if a.action == "show":
@@ -170,8 +212,22 @@ def main(argv=None):
 
     v = sub.add_parser("serve")
     v.add_argument("--port", type=int, default=9733)
-    v.add_argument("--host", default="0.0.0.0")
+    # 默认必须是 :: —— 0.0.0.0 只监听 IPv4，对端走 IPv6 会连不上（见 qi_net.serve 的
+    # _DualStackServer 分支：host 里没有冒号就不走双栈）。这是踩过两次的坑。
+    v.add_argument("--host", default="::")
     v.set_defaults(fn=cmd_serve)
+
+    u = sub.add_parser("unread", help="列出还没处理过的消息（事件流差集）")
+    u.add_argument("--count", action="store_true", help="只输出数量")
+    u.add_argument("--json", action="store_true")
+    u.set_defaults(fn=cmd_unread)
+
+    k = sub.add_parser("ack", help="标记某条消息已处理")
+    k.add_argument("message_id")
+    k.add_argument("--note", default="")
+    k.add_argument("--by", default="")
+    k.set_defaults(fn=cmd_ack)
+
 
     q = sub.add_parser("policy")
     q.add_argument("action", choices=["show", "set", "rm"])
