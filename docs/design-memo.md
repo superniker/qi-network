@@ -245,14 +245,20 @@ Registry 按能力/名称模糊搜（给人用的电话簿），DHT 按 Node ID 
 
 ### 域名
 
-| 域名 | 注册商 | 状态 |
-|---|---|---|
-| qi-network.ai | Dynadot | ✅ 已购 |
-| qi-network.com | 万网 | ✅ 已购 |
-| qi-network.cn | 万网 | ✅ 已购 |
-| qi-network.org | Dynadot | ✅ 已购 |
-| qi-network.net | Dynadot | ✅ 已购 + DNS 生效 |
-| qi-protocol.org | Dynadot | ✅ 已购 |
+| 域名 | 注册商 | 状态 | 用途 | 部署位置 | 备案 |
+|---|---|---|---|---|---|
+| **qi-network.net** | Dynadot | ✅ 已购 + DNS 生效 | **协议基础设施**：registry:7881 / bootstrap:7883 | 搬瓦工 VPS 144.34.167.237 | 不需要（境外） |
+| **qi-network.ai** | Dynadot | ✅ 已购（停放中） | **英文主站**（产品/平台） | 境外 | **不可备案**（工信部许可后缀名单无 .ai → 只能放境外） |
+| **qi-network.org** | Dynadot | ✅ 已购（停放中） | **治理与社区**（非营利叙事） | 境外 | 不需要 |
+| **qi-protocol.org** | Dynadot | ✅ 已购（停放中） | **协议规范文档站**（spec 正文，`GETTING_STARTED.md` 已引用 `/spec`） | 境外 | 不需要 |
+| **qi-network.com** | 万网 | ✅ 已购（未配 DNS） | **301 跳转**至 .ai | 仅 DNS | — |
+| **qi-network.cn** | 万网 | ✅ 已购（未配 DNS） | **中文站** | 深圳阿里云 120.77.152.204 | **必须**（备案办理中） |
+
+> **实测（2026-11-17）**：仅 `qi-network.net` 解析到真实 VPS（144.34.167.237），`7881`/`7883` 端口可连；
+> `qi-network.ai` / `qi-network.org` / `qi-protocol.org` 均指向 Dynadot 停放页 `185.53.179.128`（泛解析，非真站）；
+> `qi-network.com` / `qi-network.cn` 无 A 记录。
+>
+> **备案规则**：备案只跟服务器所在地有关，与域名后缀无关。解析到境内服务器必须备案；`.ai` 因不在工信部许可后缀名单内，**无论服务器在哪都无法 ICP 备案**，故 .ai 站只能部署境外。
 
 ### VPS
 
