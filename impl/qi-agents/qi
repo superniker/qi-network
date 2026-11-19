@@ -126,6 +126,8 @@ def cmd_ack(a):
     except Exception:                                        # noqa: BLE001
         sys.exit("qi_notify 未就位（应在本目录下）")
     qi_notify.mark_handled(a.message_id, note=a.note or "", by=a.by or "")
+    if not str(a.message_id).startswith("urn:"):                 # 2026-11-20 修：events 存全 urn，裸 uuid 需补记否则 unread 永不清零
+        qi_notify.mark_handled(f"urn:qi:msg:{a.message_id}", note=a.note or "", by=a.by or "")
     print(f"已标记 {a.message_id}")
 
 
