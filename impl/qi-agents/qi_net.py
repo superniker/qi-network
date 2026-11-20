@@ -20,6 +20,7 @@ import os
 import secrets
 import shutil
 import socket
+import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -225,7 +226,80 @@ def store(env: dict, verified: bool, reason: str, d: str | Path | None = None) -
         qi_notify.on_store(env, p, verified=verified, reason=reason)
     except Exception:                                               # noqa: BLE001
         pass
+    # 自动回执：告诉发送方"已收到，排队待处理"。异步 + 有并发上限，绝不阻塞收信。
+    try:
+        _spawn_receipt(env, d)
+    except Exception:                                               # noqa: BLE001
+        pass
     return p
+
+
+# ── 自动回执 ──────────────────────────────────────────────────────────
+# 问题背景（2026-11-20 排查）：收信口 9737 是 `qi serve`，只落盘不回话；
+# worker 只认 COVENANT_PROPOSE。发送方拿到的是 HTTP 200 `stored`，
+# 但那是"信到了"，不是"有人接了" —— 于是以为对方没反应，反复催办。
+#
+# 这里在唯一收信落盘入口 store() 挂一层：收到任务类消息立刻回一条
+#    qi/task/receipt  {status: received, in_reply_to: <原 id>}
+# 走中转信箱（收件方必然在线可自取，比直投可靠）。
+#
+# 三条硬约定：
+#   1. 绝不阻塞收信 —— 独立 daemon 线程 + 信号量限并发
+#   2. 绝不回执回执/报告类 —— 天然防循环
+#   3. 失败静默 —— 回执是锦上添花，收信才是本职工作
+_RECEIPT_TYPES = frozenset({
+    "task", "qi/task/request", "qi/knowledge/share",
+    "qi/covenant/propose", "qi/covenant/verify",
+})
+_RECEIPT_MAX_THREADS = 4
+_receipt_sem = threading.Semaphore(_RECEIPT_MAX_THREADS)
+_receipt_seen: set[str] = set()
+_receipt_lock = threading.Lock()
+
+
+def _receipt_base() -> str:
+    """回执走哪个中转站。环境变量优先，否则用已知的中转站。"""
+    return (os.environ.get("QI_MAILBOX") or "http://qi-network.net:7883").strip()
+
+
+def _auto_receipt(env: dict, d: str | Path | None = None) -> None:
+    try:
+        mid = str(env.get("message_id") or "")
+        typ = str(env.get("type") or "")
+        frm = str(env.get("from") or "")
+        if not (mid and typ and frm):
+            return
+        if typ not in _RECEIPT_TYPES:
+            return                                    # 回执/报告类不回执
+        with _receipt_lock:
+            if mid in _receipt_seen:
+                return
+            _receipt_seen.add(mid)
+        ident = load_identity(d)
+        if frm == ident.node_id:
+            return                                    # 自己发的不回执
+        payload = {
+            "status": "received",
+            "in_reply_to": mid,
+            "re_type": typ,
+            "note": "已收到，排队待处理。处理完会另发执行报告。",
+        }
+        rec = build_envelope("qi/task/receipt", payload, frm, ident)
+        deposit_mailbox(_receipt_base(), frm, rec, ident, timeout=8.0)
+    except Exception:                                             # noqa: BLE001
+        pass
+    finally:
+        try:
+            _receipt_sem.release()
+        except Exception:                                         # noqa: BLE001
+            pass
+
+
+def _spawn_receipt(env: dict, d: str | Path | None = None) -> None:
+    """起一个回执线程；并发满了就直接跳过（不排队、不阻塞）。"""
+    if not _receipt_sem.acquire(blocking=False):
+        return
+    threading.Thread(target=_auto_receipt, args=(env, d), daemon=True).start()
 
 
 def inbox(limit: int = 20, d: str | Path | None = None) -> list[dict]:
