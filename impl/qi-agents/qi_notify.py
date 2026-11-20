@@ -34,18 +34,22 @@ from pathlib import Path
 def _base(data_dir: str | Path | None = None) -> Path:
     """事件流路径。
 
-    优先级：环境变量 > 显式 data_dir > 历史默认（~/.qi-node）。
+    优先级：环境变量 > 显式 data_dir > 与 qi_net.data_dir() 一致的默认（~/.qi）。
 
-    ⚠ 2026-11-20 修复：原先无参数、硬编码 ~/.qi-node，导致任何身份的节点
-    （如本机 9734 用 ~/.qi）收到的消息，事件全写进 ~/.qi-node 的账本，
-    `qi unread` 于是把别人的事件算成自己的未读。data_dir 必须跟着实际数据目录走。
+    ⚠ 2026-11-20 修复两处：
+    1. 原先无参数、硬编码 ~/.qi-node，导致任何身份的节点（如本机 9734 用 ~/.qi）
+       收到的消息事件全写进 ~/.qi-node 的账本，`qi unread` 把别人的事件算成自己的未读。
+    2. 默认值必须和 qi_net.data_dir() 保持一致。那边默认 ~/.qi，这里原来默认
+       ~/.qi-node —— `qi serve` 不传 --data 时身份读 ~/.qi、事件写 ~/.qi-node，
+       同一进程两套目录，账本永远对不上。显式传 --data 的（如 9733 worker）
+       不受影响。
     """
     p = os.environ.get("QI_NOTIFY_EVENTS")
     if p:
         return Path(p).expanduser()
     if data_dir:
         return Path(data_dir).expanduser() / "events.jsonl"
-    return Path.home() / ".qi-node" / "events.jsonl"
+    return Path.home() / ".qi" / "events.jsonl"
 
 
 def events_path(data_dir: str | Path | None = None) -> Path:
