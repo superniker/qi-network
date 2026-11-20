@@ -31,19 +31,29 @@ from pathlib import Path
 
 # ── 路径 ────────────────────────────────────────────────
 
-def _base() -> Path:
+def _base(data_dir: str | Path | None = None) -> Path:
+    """事件流路径。
+
+    优先级：环境变量 > 显式 data_dir > 历史默认（~/.qi-node）。
+
+    ⚠ 2026-11-20 修复：原先无参数、硬编码 ~/.qi-node，导致任何身份的节点
+    （如本机 9734 用 ~/.qi）收到的消息，事件全写进 ~/.qi-node 的账本，
+    `qi unread` 于是把别人的事件算成自己的未读。data_dir 必须跟着实际数据目录走。
+    """
     p = os.environ.get("QI_NOTIFY_EVENTS")
     if p:
         return Path(p).expanduser()
+    if data_dir:
+        return Path(data_dir).expanduser() / "events.jsonl"
     return Path.home() / ".qi-node" / "events.jsonl"
 
 
-def events_path() -> Path:
-    return _base()
+def events_path(data_dir: str | Path | None = None) -> Path:
+    return _base(data_dir)
 
 
-def handled_path() -> Path:
-    return events_path().with_name("handled.jsonl")
+def handled_path(data_dir: str | Path | None = None) -> Path:
+    return events_path(data_dir).with_name("handled.jsonl")
 
 
 # ── 事件写入 ─────────────────────────────────────────────
@@ -87,6 +97,9 @@ def summarize(env: dict) -> dict:
         "type": env.get("type"),
         "from": frm,
         "from_short": frm.rsplit(":", 1)[-1][:16] if frm else "",
+        # 2026-11-20 新增：记下收件人，否则多身份同机时无法判断事件归属谁的账本
+        "to": str(env.get("to", "") or ""),
+        "to_short": (str(env.get("to", "")) or "").rsplit(":", 1)[-1][:16],
         "ts": env.get("timestamp"),
         "has_body": bool(body),
         "body_preview": body[:200].replace("\n", " "),
@@ -124,8 +137,12 @@ def _notify_send(title: str, body: str) -> None:
 # ── 对外入口 ─────────────────────────────────────────────
 
 def on_store(envelope: dict, stored_path: str | Path | None = None,
-             verified: bool = True, reason: str = "") -> None:
-    """消息落盘后调用。这是唯一入口，**永不抛异常**。"""
+             verified: bool = True, reason: str = "",
+             data_dir: str | Path | None = None) -> None:
+    """消息落盘后调用。这是唯一入口，**永不抛异常**。
+
+    data_dir 必须传调用方实际使用的数据目录，否则事件会落到别人的账本里。
+    """
     try:
         rec = summarize(envelope)
         # 没有 message_id 的不是有效消息（脏数据/半包），不进事件流，免得污染未读计数
@@ -138,7 +155,7 @@ def on_store(envelope: dict, stored_path: str | Path | None = None,
         if stored_path:
             rec["file"] = Path(stored_path).name
 
-        p = events_path()
+        p = events_path(data_dir)
         _rotate(p)
         _append(p, rec)
 
@@ -172,24 +189,25 @@ def _read_jsonl(p: Path) -> list[dict]:
     return out
 
 
-def handled_ids() -> set[str]:
-    return {str(r.get("message_id")) for r in _read_jsonl(handled_path()) if r.get("message_id")}
+def handled_ids(data_dir: str | Path | None = None) -> set[str]:
+    return {str(r.get("message_id")) for r in _read_jsonl(handled_path(data_dir)) if r.get("message_id")}
 
 
-def unread() -> list[dict]:
+def unread(data_dir: str | Path | None = None) -> list[dict]:
     """还没被处理过的消息事件（按到达顺序）。"""
-    done = handled_ids()
-    return [r for r in _read_jsonl(events_path()) if str(r.get("message_id")) not in done]
+    done = handled_ids(data_dir)
+    return [r for r in _read_jsonl(events_path(data_dir)) if str(r.get("message_id")) not in done]
 
 
-def unread_count() -> int:
-    return len(unread())
+def unread_count(data_dir: str | Path | None = None) -> int:
+    return len(unread(data_dir))
 
 
-def mark_handled(message_id: str, note: str = "", by: str = "") -> None:
+def mark_handled(message_id: str, note: str = "", by: str = "",
+                 data_dir: str | Path | None = None) -> None:
     """处理完一条，记一笔。应用/agent 答完消息后应该调这个。"""
     try:
-        _append(handled_path(), {
+        _append(handled_path(data_dir), {
             "message_id": str(message_id),
             "handled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "note": note,

@@ -102,7 +102,7 @@ def main() -> int:
     st = load_state()
     seen = {str(x) for x in (st.get("notified") or [])}
     try:
-        items = qi_notify.unread()
+        items = qi_notify.unread(DATA_DIR)
     except Exception as e:                                   # noqa: BLE001
         print(f"读未读失败: {e}", file=sys.stderr)
         return 1

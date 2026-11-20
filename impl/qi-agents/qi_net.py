@@ -223,7 +223,7 @@ def store(env: dict, verified: bool, reason: str, d: str | Path | None = None) -
     # 通知层：写事件（+ 可选桌面弹窗）。失败绝不影响收信 —— 见 qi_notify 的约定。
     try:
         import qi_notify                                            # noqa: PLC0415
-        qi_notify.on_store(env, p, verified=verified, reason=reason)
+        qi_notify.on_store(env, p, verified=verified, reason=reason, data_dir=d)
     except Exception:                                               # noqa: BLE001
         pass
     # 自动回执：告诉发送方"已收到，排队待处理"。异步 + 有并发上限，绝不阻塞收信。
